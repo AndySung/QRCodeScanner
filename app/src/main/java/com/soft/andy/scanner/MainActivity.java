@@ -1,0 +1,409 @@
+package com.soft.andy.scanner;
+
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
+import android.util.Size;
+import android.view.View;
+import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.OptIn;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.camera.core.Camera;
+import androidx.camera.core.CameraSelector;
+import androidx.camera.core.ExperimentalGetImage;
+import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.ImageCapture;
+import androidx.camera.core.ImageCaptureException;
+import androidx.camera.core.ImageProxy;
+import androidx.camera.core.Preview;
+import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.camera.view.PreviewView;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.lifecycle.LifecycleOwner;
+
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.mlkit.vision.barcode.BarcodeScanner;
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions;
+import com.google.mlkit.vision.barcode.BarcodeScanning;
+import com.google.mlkit.vision.barcode.common.Barcode;
+import com.google.mlkit.vision.common.InputImage;
+
+import java.io.File;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+public class MainActivity extends AppCompatActivity {
+
+    private static final String TAG = "QRScanner";
+    private static final int CAMERA_PERMISSION_REQUEST = 100;
+    private static final int GALLERY_PERMISSION_REQUEST = 101;
+
+    private PreviewView previewView;
+    private View scanFrame;
+    private Button galleryButton;
+    private Button captureButton;
+    private Button flashButton;
+    private LinearLayout resultContainer;
+    private ImageView previewImage;
+    private Button retryButton;
+    private Button recognizeButton;
+    
+    private ExecutorService cameraExecutor;
+    private BarcodeScanner barcodeScanner;
+    private Camera camera;
+    private ProcessCameraProvider cameraProvider;
+    private ImageCapture imageCapture;
+    private boolean isScanning = true;
+    private boolean isFlashOn = false;
+    private Bitmap currentBitmap;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+        initViews();
+        setupBarcodeScanner();
+        checkCameraPermission();
+
+        cameraExecutor = Executors.newSingleThreadExecutor();
+    }
+
+    private void initViews() {
+        previewView = findViewById(R.id.previewView);
+        scanFrame = findViewById(R.id.scanFrame);
+        galleryButton = findViewById(R.id.galleryButton);
+        captureButton = findViewById(R.id.captureButton);
+        flashButton = findViewById(R.id.flashButton);
+        resultContainer = findViewById(R.id.resultContainer);
+        previewImage = findViewById(R.id.previewImage);
+        retryButton = findViewById(R.id.retryButton);
+        recognizeButton = findViewById(R.id.recognizeButton);
+        
+        galleryButton.setOnClickListener(v -> pickImageFromGallery());
+        captureButton.setOnClickListener(v -> takePicture());
+        flashButton.setOnClickListener(v -> toggleFlash());
+        retryButton.setOnClickListener(v -> retryCapture());
+        recognizeButton.setOnClickListener(v -> recognizeImage());
+    }
+
+    private void setupBarcodeScanner() {
+        BarcodeScannerOptions options = new BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                .build();
+        
+        barcodeScanner = BarcodeScanning.getClient(options);
+    }
+
+    private void checkCameraPermission() {
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{android.Manifest.permission.CAMERA},
+                    CAMERA_PERMISSION_REQUEST);
+        } else {
+            startCamera();
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == CAMERA_PERMISSION_REQUEST) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startCamera();
+            } else {
+                Toast.makeText(this, "需要相机权限", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    private void startCamera() {
+        ListenableFuture<ProcessCameraProvider> cameraProviderFuture = 
+                ProcessCameraProvider.getInstance(this);
+
+        cameraProviderFuture.addListener(() -> {
+            try {
+                cameraProvider = cameraProviderFuture.get();
+                bindCameraPreview();
+            } catch (ExecutionException | InterruptedException e) {
+                Log.e(TAG, "相机初始化失败", e);
+                Toast.makeText(this, "相机初始化失败", Toast.LENGTH_SHORT).show();
+            }
+        }, ContextCompat.getMainExecutor(this));
+    }
+
+    private void bindCameraPreview() {
+        CameraSelector cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
+
+        Preview preview = new Preview.Builder().build();
+        preview.setSurfaceProvider(previewView.getSurfaceProvider());
+
+        imageCapture = new ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                .setTargetResolution(new Size(1920, 1080))
+                .build();
+
+        ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setTargetResolution(new Size(1920, 1080))
+                .build();
+        
+        imageAnalysis.setAnalyzer(cameraExecutor, this::analyzeImage);
+
+        try {
+            cameraProvider.unbindAll();
+            camera = cameraProvider.bindToLifecycle(
+                    (LifecycleOwner) this,
+                    cameraSelector,
+                    preview,
+                    imageCapture,
+                    imageAnalysis
+            );
+        } catch (Exception e) {
+            Log.e(TAG, "相机绑定失败", e);
+        }
+    }
+
+    @OptIn(markerClass = ExperimentalGetImage.class)
+    private void analyzeImage(ImageProxy imageProxy) {
+        if (!isScanning || imageProxy == null || imageProxy.getImage() == null) {
+            imageProxy.close();
+            return;
+        }
+
+        InputImage inputImage = InputImage.fromMediaImage(
+                imageProxy.getImage(),
+                imageProxy.getImageInfo().getRotationDegrees()
+        );
+
+        barcodeScanner.process(inputImage)
+                .addOnSuccessListener(barcodes -> {
+                    if (!barcodes.isEmpty() && isScanning) {
+                        Barcode barcode = barcodes.get(0);
+                        String result = barcode.getRawValue();
+                        if (result != null && !result.isEmpty()) {
+                            isScanning = false;
+                            runOnUiThread(() -> showResultAlert(result));
+                        }
+                    }
+                })
+                .addOnFailureListener(e -> {})
+                .addOnCompleteListener(task -> imageProxy.close());
+    }
+
+    private void takePicture() {
+        if (camera == null || imageCapture == null) {
+            Toast.makeText(this, "相机未就绪", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        captureButton.setText("拍摄中...");
+        captureButton.setEnabled(false);
+
+        File photoFile = new File(getCacheDir(), "qr_capture.jpg");
+
+        ImageCapture.OutputFileOptions outputOptions = 
+                new ImageCapture.OutputFileOptions.Builder(photoFile).build();
+
+        imageCapture.takePicture(outputOptions, cameraExecutor, 
+            new ImageCapture.OnImageSavedCallback() {
+                @Override
+                public void onImageSaved(@NonNull ImageCapture.OutputFileResults output) {
+                    try {
+                        Bitmap bitmap = BitmapFactory.decodeFile(photoFile.getAbsolutePath());
+                        photoFile.delete();
+                        
+                        if (bitmap == null) {
+                            runOnUiThread(() -> {
+                                Toast.makeText(MainActivity.this, "图片读取失败", Toast.LENGTH_SHORT).show();
+                                resetButton();
+                            });
+                            return;
+                        }
+                        
+                        // 放大 2 倍
+                        currentBitmap = Bitmap.createScaledBitmap(
+                                bitmap,
+                                bitmap.getWidth() * 2,
+                                bitmap.getHeight() * 2,
+                                true
+                        );
+                        bitmap.recycle();
+                        
+                        Log.d(TAG, "显示图片: " + currentBitmap.getWidth() + "x" + currentBitmap.getHeight());
+                        
+                        // 显示图片
+                        runOnUiThread(() -> {
+                            previewImage.setImageBitmap(currentBitmap);
+                            resultContainer.setVisibility(View.VISIBLE);
+                            captureButton.setText("已拍照");
+                            captureButton.setEnabled(false);
+                        });
+                                
+                    } catch (Exception e) {
+                        Log.e(TAG, "处理失败", e);
+                        runOnUiThread(() -> {
+                            Toast.makeText(MainActivity.this, "处理失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                            resetButton();
+                        });
+                    }
+                }
+
+                @Override
+                public void onError(@NonNull ImageCaptureException exception) {
+                    runOnUiThread(() -> {
+                        Toast.makeText(MainActivity.this, "拍照失败: " + exception.getMessage(), Toast.LENGTH_SHORT).show();
+                        resetButton();
+                    });
+                }
+            });
+    }
+
+    private void retryCapture() {
+        resultContainer.setVisibility(View.GONE);
+        if (currentBitmap != null) {
+            currentBitmap.recycle();
+            currentBitmap = null;
+        }
+        bindCameraPreview();
+        captureButton.setText("拍照");
+        captureButton.setEnabled(true);
+    }
+    
+    private void resetButton() {
+        captureButton.setText("拍照");
+        captureButton.setEnabled(true);
+    }
+    
+    private void recognizeImage() {
+        if (currentBitmap == null) {
+            Toast.makeText(this, "没有图片", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        recognizeButton.setEnabled(false);
+        recognizeButton.setText("识别中...");
+        
+        InputImage inputImage = InputImage.fromBitmap(currentBitmap, 0);
+        barcodeScanner.process(inputImage)
+                .addOnSuccessListener(barcodes -> {
+                    if (!barcodes.isEmpty()) {
+                        String result = barcodes.get(0).getRawValue();
+                        runOnUiThread(() -> {
+                            if (result != null && !result.isEmpty()) {
+                                showResultAlert(result);
+                                resultContainer.setVisibility(View.GONE);
+                                currentBitmap.recycle();
+                                currentBitmap = null;
+                            } else {
+                                Toast.makeText(MainActivity.this, "未识别到有效二维码", Toast.LENGTH_SHORT).show();
+                            }
+                            recognizeButton.setEnabled(true);
+                            recognizeButton.setText("识别二维码");
+                        });
+                    } else {
+                        runOnUiThread(() -> {
+                            Toast.makeText(MainActivity.this, "未识别到二维码", Toast.LENGTH_SHORT).show();
+                            recognizeButton.setEnabled(true);
+                            recognizeButton.setText("识别二维码");
+                        });
+                    }
+                })
+                .addOnFailureListener(e -> {
+                    runOnUiThread(() -> {
+                        Toast.makeText(MainActivity.this, "识别失败", Toast.LENGTH_SHORT).show();
+                        recognizeButton.setEnabled(true);
+                        recognizeButton.setText("识别二维码");
+                    });
+                });
+    }
+
+    private void toggleFlash() {
+        if (camera != null) {
+            isFlashOn = !isFlashOn;
+            camera.getCameraControl().enableTorch(isFlashOn);
+            flashButton.setText(isFlashOn ? "关闭" : "手电筒");
+        }
+    }
+
+    private void pickImageFromGallery() {
+        Intent intent = new Intent(Intent.ACTION_PICK);
+        intent.setType("image/*");
+        startActivityForResult(intent, GALLERY_PERMISSION_REQUEST);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == GALLERY_PERMISSION_REQUEST && resultCode == RESULT_OK && data != null) {
+            try {
+                Bitmap bitmap = BitmapFactory.decodeStream(getContentResolver().openInputStream(data.getData()));
+                if (bitmap != null) {
+                    Bitmap scaledBitmap = Bitmap.createScaledBitmap(
+                            bitmap, bitmap.getWidth() * 2, bitmap.getHeight() * 2, true);
+                    
+                    InputImage image = InputImage.fromBitmap(scaledBitmap, 0);
+                    barcodeScanner.process(image)
+                            .addOnSuccessListener(barcodes -> {
+                                if (!barcodes.isEmpty()) {
+                                    String result = barcodes.get(0).getRawValue();
+                                    runOnUiThread(() -> showResultAlert(result != null ? result : "未识别"));
+                                } else {
+                                    runOnUiThread(() -> showResultAlert("未识别"));
+                                }
+                            })
+                            .addOnFailureListener(e -> runOnUiThread(() -> showResultAlert("解析失败")));
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "解析失败", e);
+            }
+        }
+    }
+
+    private void showResultAlert(String message) {
+        new AlertDialog.Builder(this)
+                .setTitle("扫描结果")
+                .setMessage(message)
+                .setPositiveButton("确定", (dialog, which) -> {
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> isScanning = true, 1500);
+                })
+                .setNegativeButton("复制", (dialog, which) -> {
+                    android.content.ClipboardManager clipboard = (android.content.ClipboardManager)
+                            getSystemService(CLIPBOARD_SERVICE);
+                    android.content.ClipData clip = android.content.ClipData.newPlainText("QR", message);
+                    clipboard.setPrimaryClip(clip);
+                    Toast.makeText(this, "已复制", Toast.LENGTH_SHORT).show();
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> isScanning = true, 1500);
+                })
+                .setCancelable(false)
+                .show();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        isScanning = true;
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (cameraExecutor != null) cameraExecutor.shutdown();
+        if (barcodeScanner != null) barcodeScanner.close();
+    }
+}
