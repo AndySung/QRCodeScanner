@@ -360,18 +360,34 @@ public class MainActivity extends AppCompatActivity {
             try {
                 Bitmap bitmap = BitmapFactory.decodeStream(getContentResolver().openInputStream(data.getData()));
                 if (bitmap != null) {
-                    Bitmap scaledBitmap = Bitmap.createScaledBitmap(bitmap, bitmap.getWidth() * 2, bitmap.getHeight() * 2, true);
-                    InputImage image = InputImage.fromBitmap(scaledBitmap, 0);
-                    barcodeScanner.process(image)
-                            .addOnSuccessListener(barcodes -> {
-                                if (!barcodes.isEmpty()) {
-                                    String result = barcodes.get(0).getRawValue();
-                                    runOnUiThread(() -> showResultAlert(result != null ? result : "未识别"));
-                                } else {
-                                    runOnUiThread(() -> showResultAlert("未识别"));
-                                }
-                            })
-                            .addOnFailureListener(e -> runOnUiThread(() -> showResultAlert("解析失败")));
+                    // 裁剪中间区域并放大
+                    int imgWidth = bitmap.getWidth();
+                    int imgHeight = bitmap.getHeight();
+                    
+                    // 取中间 1/3 区域
+                    int cropSize = Math.min(imgWidth, imgHeight) / 3;
+                    int cropLeft = (imgWidth - cropSize) / 2;
+                    int cropTop = (imgHeight - cropSize) / 2;
+                    
+                    Log.d(TAG, "相册图片: " + imgWidth + "x" + imgHeight + ", 裁剪: " + cropSize + "x" + cropSize);
+                    
+                    // 裁剪中间区域
+                    Bitmap croppedBitmap = Bitmap.createBitmap(bitmap, cropLeft, cropTop, cropSize, cropSize);
+                    bitmap.recycle();
+                    
+                    // 放大 3 倍
+                    currentBitmap = Bitmap.createScaledBitmap(croppedBitmap, cropSize * 3, cropSize * 3, true);
+                    croppedBitmap.recycle();
+                    
+                    // 显示图片
+                    previewImage.setImageBitmap(currentBitmap);
+                    resultContainer.setVisibility(View.VISIBLE);
+                    captureButton.setText("已选择");
+                    captureButton.setEnabled(false);
+                    
+                    // 自动识别
+                    recognizeImage();
+                    resetButton();
                 }
             } catch (Exception e) {
                 Log.e(TAG, "解析失败", e);
