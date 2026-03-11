@@ -16,12 +16,10 @@ import android.widget.LinearLayout;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.OptIn;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.camera.core.Camera;
 import androidx.camera.core.CameraSelector;
-import androidx.camera.core.ExperimentalGetImage;
 import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.ImageCapture;
 import androidx.camera.core.ImageCaptureException;
@@ -179,7 +177,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    @OptIn(markerClass = ExperimentalGetImage.class)
     private void analyzeImage(ImageProxy imageProxy) {
         if (!isScanning || imageProxy == null || imageProxy.getImage() == null) {
             imageProxy.close();
@@ -236,23 +233,32 @@ public class MainActivity extends AppCompatActivity {
                             return;
                         }
                         
-                        // 放大 2 倍
-                        currentBitmap = Bitmap.createScaledBitmap(
-                                bitmap,
-                                bitmap.getWidth() * 2,
-                                bitmap.getHeight() * 2,
-                                true
-                        );
+                        int imgWidth = bitmap.getWidth();
+                        int imgHeight = bitmap.getHeight();
+                        
+                        // 取中间 1/3 区域
+                        int cropSize = Math.min(imgWidth, imgHeight) / 3;
+                        int cropLeft = (imgWidth - cropSize) / 2;
+                        int cropTop = (imgHeight - cropSize) / 2;
+                        
+                        Log.d(TAG, "原图: " + imgWidth + "x" + imgHeight + ", 裁剪: " + cropSize + "x" + cropSize);
+                        
+                        // 裁剪中间区域
+                        Bitmap croppedBitmap = Bitmap.createBitmap(bitmap, cropLeft, cropTop, cropSize, cropSize);
                         bitmap.recycle();
                         
-                        Log.d(TAG, "显示图片: " + currentBitmap.getWidth() + "x" + currentBitmap.getHeight());
+                        // 放大 3 倍
+                        currentBitmap = Bitmap.createScaledBitmap(croppedBitmap, cropSize * 3, cropSize * 3, true);
+                        croppedBitmap.recycle();
+                        
+                        Log.d(TAG, "放大后: " + currentBitmap.getWidth() + "x" + currentBitmap.getHeight());
                         
                         // 显示图片
                         runOnUiThread(() -> {
                             previewImage.setImageBitmap(currentBitmap);
                             resultContainer.setVisibility(View.VISIBLE);
                             captureButton.setText("已拍照");
-                            captureButton.setEnabled(false);
+                            resetButton();
                         });
                                 
                     } catch (Exception e) {
@@ -280,9 +286,9 @@ public class MainActivity extends AppCompatActivity {
             currentBitmap.recycle();
             currentBitmap = null;
         }
-        bindCameraPreview();
         captureButton.setText("拍照");
         captureButton.setEnabled(true);
+        bindCameraPreview();
     }
     
     private void resetButton() {
@@ -354,9 +360,7 @@ public class MainActivity extends AppCompatActivity {
             try {
                 Bitmap bitmap = BitmapFactory.decodeStream(getContentResolver().openInputStream(data.getData()));
                 if (bitmap != null) {
-                    Bitmap scaledBitmap = Bitmap.createScaledBitmap(
-                            bitmap, bitmap.getWidth() * 2, bitmap.getHeight() * 2, true);
-                    
+                    Bitmap scaledBitmap = Bitmap.createScaledBitmap(bitmap, bitmap.getWidth() * 2, bitmap.getHeight() * 2, true);
                     InputImage image = InputImage.fromBitmap(scaledBitmap, 0);
                     barcodeScanner.process(image)
                             .addOnSuccessListener(barcodes -> {
