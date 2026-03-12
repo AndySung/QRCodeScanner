@@ -1,18 +1,24 @@
 package com.soft.andy.scanner;
 
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
 import android.util.Log;
 import android.util.Size;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.Switch;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -39,6 +45,11 @@ import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.common.InputImage;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -58,6 +69,7 @@ public class MainActivity extends AppCompatActivity {
     private ImageView previewImage;
     private Button retryButton;
     private Button recognizeButton;
+    private Switch saveSwitch;
     
     private ExecutorService cameraExecutor;
     private BarcodeScanner barcodeScanner;
@@ -66,6 +78,7 @@ public class MainActivity extends AppCompatActivity {
     private ImageCapture imageCapture;
     private boolean isScanning = true;
     private boolean isFlashOn = false;
+    private boolean saveToGallery = false;
     private Bitmap currentBitmap;
 
     @Override
@@ -90,12 +103,18 @@ public class MainActivity extends AppCompatActivity {
         previewImage = findViewById(R.id.previewImage);
         retryButton = findViewById(R.id.retryButton);
         recognizeButton = findViewById(R.id.recognizeButton);
+        saveSwitch = findViewById(R.id.saveSwitch);
         
         galleryButton.setOnClickListener(v -> pickImageFromGallery());
         captureButton.setOnClickListener(v -> takePicture());
         flashButton.setOnClickListener(v -> toggleFlash());
         retryButton.setOnClickListener(v -> retryCapture());
         recognizeButton.setOnClickListener(v -> recognizeImage());
+        
+        saveSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            saveToGallery = isChecked;
+            Toast.makeText(this, isChecked ? "已开启保存到相册" : "已关闭保存到相册", Toast.LENGTH_SHORT).show();
+        });
     }
 
     private void setupBarcodeScanner() {
@@ -153,7 +172,7 @@ public class MainActivity extends AppCompatActivity {
 
         imageCapture = new ImageCapture.Builder()
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-                .setTargetResolution(new Size(1920, 1080))
+                .setTargetResolution(new Size(3280, 2160))
                 .build();
 
         ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
@@ -222,6 +241,11 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onImageSaved(@NonNull ImageCapture.OutputFileResults output) {
                     try {
+                        // 如果开启了保存到相册
+                        if (saveToGallery) {
+                            saveImageToGallery(photoFile);
+                        }
+                        
                         Bitmap bitmap = BitmapFactory.decodeFile(photoFile.getAbsolutePath());
                         photoFile.delete();
                         
@@ -278,6 +302,43 @@ public class MainActivity extends AppCompatActivity {
                     });
                 }
             });
+    }
+    
+    private void saveImageToGallery(File file) {
+        try {
+            Bitmap bitmap = BitmapFactory.decodeFile(file.getAbsolutePath());
+            if (bitmap != null) {
+                String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+                String filename = "QR_" + timestamp + ".jpg";
+                
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.Images.Media.DISPLAY_NAME, filename);
+                    values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+                    values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/QRScanner");
+                    
+                    Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                    if (uri != null) {
+                        OutputStream out = getContentResolver().openOutputStream(uri);
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 100, out);
+                        out.close();
+                        Log.d(TAG, "已保存到相册: " + filename);
+                    }
+                } else {
+                    File picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
+                    File qrDir = new File(picturesDir, "QRScanner");
+                    if (!qrDir.exists()) qrDir.mkdirs();
+                    File destFile = new File(qrDir, filename);
+                    FileOutputStream out = new FileOutputStream(destFile);
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 100, out);
+                    out.close();
+                    Log.d(TAG, "已保存到相册: " + destFile.getAbsolutePath());
+                }
+                bitmap.recycle();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "保存相册失败", e);
+        }
     }
 
     private void retryCapture() {
@@ -360,7 +421,6 @@ public class MainActivity extends AppCompatActivity {
             try {
                 Bitmap bitmap = BitmapFactory.decodeStream(getContentResolver().openInputStream(data.getData()));
                 if (bitmap != null) {
-                    // 裁剪中间区域并放大
                     int imgWidth = bitmap.getWidth();
                     int imgHeight = bitmap.getHeight();
                     
@@ -387,7 +447,6 @@ public class MainActivity extends AppCompatActivity {
                     
                     // 自动识别
                     recognizeImage();
-                    resetButton();
                 }
             } catch (Exception e) {
                 Log.e(TAG, "解析失败", e);

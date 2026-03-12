@@ -21,14 +21,27 @@
         android:id="@+id/titleText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="工业级二维码扫描器"
+        android:text="二维码扫描器"
         android:textColor="#FFFFFF"
         android:textSize="18sp"
         android:textStyle="bold"
         app:layout_constraintBottom_toBottomOf="@id/topBar"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="@id/topBar" />
+        app:layout_constraintStart_toStartOf="@id/topBar"
+        app:layout_constraintTop_toTopOf="@id/topBar"
+        android:layout_marginStart="16dp" />
+
+    <Switch
+        android:id="@+id/saveSwitch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="保存相册"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:thumbTint="#00FF00"
+        app:layout_constraintBottom_toBottomOf="@id/topBar"
+        app:layout_constraintEnd_toEndOf="@id/topBar"
+        app:layout_constraintTop_toTopOf="@id/topBar"
+        android:layout_marginEnd="16dp" />
 
     <!-- 相机预览 -->
     <FrameLayout
