@@ -12,6 +12,7 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.Size;
 import android.view.View;
@@ -25,12 +26,14 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.camera.core.Camera;
+import androidx.camera.core.CameraInfo;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.ImageCapture;
 import androidx.camera.core.ImageCaptureException;
 import androidx.camera.core.ImageProxy;
 import androidx.camera.core.Preview;
+import androidx.camera.core.resolutionselector.ResolutionSelector;
 import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.camera.view.PreviewView;
 import androidx.core.app.ActivityCompat;
@@ -150,7 +153,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startCamera() {
-        ListenableFuture<ProcessCameraProvider> cameraProviderFuture = 
+        ListenableFuture<ProcessCameraProvider> cameraProviderFuture =
                 ProcessCameraProvider.getInstance(this);
 
         cameraProviderFuture.addListener(() -> {
@@ -167,19 +170,30 @@ public class MainActivity extends AppCompatActivity {
     private void bindCameraPreview() {
         CameraSelector cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
 
-        Preview preview = new Preview.Builder().build();
+        // 获取屏幕尺寸
+        DisplayMetrics displayMetrics = new DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getMetrics(displayMetrics);
+        int screenWidth = displayMetrics.widthPixels;
+        int screenHeight = displayMetrics.heightPixels;
+
+        // Preview 设置合适的预览分辨率
+        Preview preview = new Preview.Builder()
+                .setTargetResolution(new Size(screenWidth, screenHeight)) // 使用屏幕分辨率
+                .build();
         preview.setSurfaceProvider(previewView.getSurfaceProvider());
 
+        // ImageCapture 设置高分辨率
         imageCapture = new ImageCapture.Builder()
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-                .setTargetResolution(new Size(3280, 2160))
+                .setTargetResolution(new Size(3280, 2160)) // 高分辨率拍照
                 .build();
 
+        // ImageAnalysis 用较低分辨率（用于二维码实时扫描）
         ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setTargetResolution(new Size(1920, 1080))
+                .setTargetResolution(new Size(1920, 1080)) // 720p 足够二维码识别
                 .build();
-        
+
         imageAnalysis.setAnalyzer(cameraExecutor, this::analyzeImage);
 
         try {
@@ -444,7 +458,7 @@ public class MainActivity extends AppCompatActivity {
                     resultContainer.setVisibility(View.VISIBLE);
                     captureButton.setText("已选择");
                     captureButton.setEnabled(false);
-                    
+                    resetButton();
                     // 自动识别
                     recognizeImage();
                 }
