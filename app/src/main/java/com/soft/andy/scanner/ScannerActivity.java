@@ -26,14 +26,12 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.camera.core.Camera;
-import androidx.camera.core.CameraInfo;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.ImageCapture;
 import androidx.camera.core.ImageCaptureException;
 import androidx.camera.core.ImageProxy;
 import androidx.camera.core.Preview;
-import androidx.camera.core.resolutionselector.ResolutionSelector;
 import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.camera.view.PreviewView;
 import androidx.core.app.ActivityCompat;
@@ -57,7 +55,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class MainActivity extends AppCompatActivity {
+public class ScannerActivity extends AppCompatActivity {
 
     private static final String TAG = "QRScanner";
     private static final int CAMERA_PERMISSION_REQUEST = 100;
@@ -265,7 +263,7 @@ public class MainActivity extends AppCompatActivity {
                         
                         if (bitmap == null) {
                             runOnUiThread(() -> {
-                                Toast.makeText(MainActivity.this, "图片读取失败", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(ScannerActivity.this, "图片读取失败", Toast.LENGTH_SHORT).show();
                                 resetButton();
                             });
                             return;
@@ -302,7 +300,7 @@ public class MainActivity extends AppCompatActivity {
                     } catch (Exception e) {
                         Log.e(TAG, "处理失败", e);
                         runOnUiThread(() -> {
-                            Toast.makeText(MainActivity.this, "处理失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                            Toast.makeText(ScannerActivity.this, "处理失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                             resetButton();
                         });
                     }
@@ -311,7 +309,7 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onError(@NonNull ImageCaptureException exception) {
                     runOnUiThread(() -> {
-                        Toast.makeText(MainActivity.this, "拍照失败: " + exception.getMessage(), Toast.LENGTH_SHORT).show();
+                        Toast.makeText(ScannerActivity.this, "拍照失败: " + exception.getMessage(), Toast.LENGTH_SHORT).show();
                         resetButton();
                     });
                 }
@@ -392,14 +390,14 @@ public class MainActivity extends AppCompatActivity {
                                 currentBitmap.recycle();
                                 currentBitmap = null;
                             } else {
-                                Toast.makeText(MainActivity.this, "未识别到有效二维码", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(ScannerActivity.this, "未识别到有效二维码", Toast.LENGTH_SHORT).show();
                             }
                             recognizeButton.setEnabled(true);
                             recognizeButton.setText("识别二维码");
                         });
                     } else {
                         runOnUiThread(() -> {
-                            Toast.makeText(MainActivity.this, "未识别到二维码", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(ScannerActivity.this, "未识别到二维码", Toast.LENGTH_SHORT).show();
                             recognizeButton.setEnabled(true);
                             recognizeButton.setText("识别二维码");
                         });
@@ -407,7 +405,7 @@ public class MainActivity extends AppCompatActivity {
                 })
                 .addOnFailureListener(e -> {
                     runOnUiThread(() -> {
-                        Toast.makeText(MainActivity.this, "识别失败", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(ScannerActivity.this, "识别失败", Toast.LENGTH_SHORT).show();
                         recognizeButton.setEnabled(true);
                         recognizeButton.setText("识别二维码");
                     });
