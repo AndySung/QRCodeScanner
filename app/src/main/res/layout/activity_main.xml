@@ -23,6 +23,22 @@
         android:layout_gravity="center"
         android:background="@drawable/scan_frame_border" />
 
+    <!-- 倒计时提示文字 -->
+    <TextView
+        android:id="@+id/countdownText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginTop="-160dp"
+        android:padding="12dp"
+        android:background="#99000000"
+        android:textColor="#FF5722"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:visibility="gone"
+        tools:text="3秒后自动拍照"
+        tools:visibility="visible" />
+
     <!-- 顶部悬浮栏 - 透明黑色背景 -->
     <LinearLayout
         android:id="@+id/topBar"
@@ -43,6 +59,22 @@
             android:textColor="#FFFFFF"
             android:textSize="18sp"
             android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="放大:"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:layout_marginEnd="4dp" />
+
+        <Spinner
+            android:id="@+id/zoomSpinner"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:background="#666666"
+            android:popupBackground="#666666" />
 
         <Switch
             android:id="@+id/saveSwitch"
