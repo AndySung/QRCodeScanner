@@ -37,6 +37,9 @@ dependencies {
     
     // ML Kit for QR code scanning (better for fixed-focus cameras)
     implementation 'com.google.mlkit:barcode-scanning:17.3.0'
+
+    // ZXing for detecting QR code points
+    implementation 'com.google.zxing:core:3.5.3'
     
     // CameraX
     def camerax_version = "1.3.4"

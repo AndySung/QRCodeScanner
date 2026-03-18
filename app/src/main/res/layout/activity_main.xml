@@ -85,6 +85,16 @@
             android:textSize="12sp"
             android:thumbTint="#00FF00" />
 
+        <Switch
+            android:id="@+id/autoCaptureSwitch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="自动拍照"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:thumbTint="#00FF00"
+            android:checked="true" />
+
     </LinearLayout>
 
     <!-- 底部悬浮栏 -->

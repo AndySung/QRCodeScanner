@@ -76,6 +76,8 @@ public class ScannerActivity extends AppCompatActivity {
     private Button retryButton;
     private Button recognizeButton;
     private Switch saveSwitch;
+    private Switch autoCaptureSwitch;
+    private boolean autoCaptureEnabled = true; // 自动拍照开关，默认打开
     
     private ExecutorService cameraExecutor;
     private BarcodeScanner barcodeScanner;
@@ -88,16 +90,15 @@ public class ScannerActivity extends AppCompatActivity {
     private Bitmap currentBitmap;
 
     // 自动拍照相关
-    private static final long NO_SCAN_TIMEOUT_MS = 2000; // 2秒无识别则启动自动拍照
-    private static final long AUTO_CAPTURE_DELAY_MS = 3000; // 3秒后自动拍照
     private Handler autoCaptureHandler;
     private Runnable autoCaptureRunnable;
-    private long lastScanTime = 0;
     private boolean autoCaptureStarted = false;
     private boolean isViewingResult = false; // 是否正在查看结果
+    private long lastDetectionTime = 0; // 最后一次检测到二维码的时间
+    private static final long AUTO_CAPTURE_DELAY = 3000; // 3秒无识别则自动拍照
     private TextView countdownText;
     private Spinner zoomSpinner;
-    private int currentZoomLevel = 3; // 默认放大3倍
+    private int currentZoomLevel = 4; // 默认放大3倍
     private static final int MIN_ZOOM = 2;
     private static final int MAX_ZOOM = 7; // 最大放大7倍
 
@@ -125,6 +126,7 @@ public class ScannerActivity extends AppCompatActivity {
         retryButton = findViewById(R.id.retryButton);
         recognizeButton = findViewById(R.id.recognizeButton);
         saveSwitch = findViewById(R.id.saveSwitch);
+        autoCaptureSwitch = findViewById(R.id.autoCaptureSwitch);
         countdownText = findViewById(R.id.countdownText);
         zoomSpinner = findViewById(R.id.zoomSpinner);
 
@@ -176,6 +178,11 @@ public class ScannerActivity extends AppCompatActivity {
         saveSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             saveToGallery = isChecked;
             Toast.makeText(this, isChecked ? "已开启保存到相册" : "已关闭保存到相册", Toast.LENGTH_SHORT).show();
+        });
+
+        autoCaptureSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            autoCaptureEnabled = isChecked;
+            Toast.makeText(this, isChecked ? "已开启自动拍照" : "已关闭自动拍照", Toast.LENGTH_SHORT).show();
         });
     }
 
@@ -247,10 +254,11 @@ public class ScannerActivity extends AppCompatActivity {
                 .setTargetResolution(new Size(3280, 2160)) // 高分辨率拍照
                 .build();
 
-        // ImageAnalysis 用较低分辨率（用于二维码实时扫描）
+        // ImageAnalysis 用较高分辨率来检测小二维码
         ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setTargetResolution(new Size(1920, 1080)) // 720p 足够二维码识别
+                .setTargetResolution(new Size(1920, 1080)) // 1080p 用于检测小二维码
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .build();
 
         imageAnalysis.setAnalyzer(cameraExecutor, this::analyzeImage);
@@ -275,55 +283,64 @@ public class ScannerActivity extends AppCompatActivity {
             return;
         }
 
+        final int rotationDegrees = imageProxy.getImageInfo().getRotationDegrees();
         InputImage inputImage = InputImage.fromMediaImage(
                 imageProxy.getImage(),
-                imageProxy.getImageInfo().getRotationDegrees()
+                rotationDegrees
         );
 
         barcodeScanner.process(inputImage)
                 .addOnSuccessListener(barcodes -> {
                     if (!barcodes.isEmpty() && isScanning) {
-                        Barcode barcode = barcodes.get(0);
-                        String result = barcode.getRawValue();
-                        if (result != null && !result.isEmpty()) {
-                            // 成功识别到二维码，取消自动拍照倒计时
-                            cancelAutoCapture();
-                            isScanning = false;
-                            // 标记已完成，用户点击确定后才会重置状态允许下次自动拍照
-                            autoCaptureStarted = true;
-                            runOnUiThread(() -> showResultAlert(result));
+                        for (Barcode barcode : barcodes) {
+                            String result = barcode.getRawValue();
+                            if (result != null && !result.isEmpty()) {
+                                // 成功识别到二维码
+                                cancelAutoCapture();
+                                isScanning = false;
+                                autoCaptureStarted = true;
+                                lastDetectionTime = 0; // 重置计时
+                                runOnUiThread(() -> showResultAlert(result));
+                                return;
+                            }
+                        }
+
+                        // 检测到了二维码但没识别出来，更新检测时间
+                        if (lastDetectionTime == 0) {
+                            lastDetectionTime = System.currentTimeMillis();
+                            Log.d(TAG, "检测到二维码但未识别，开始计时...");
+                        }
+                    } else {
+                        // 没有检测到二维码，也开始计时（可能是小二维码）
+                        if (lastDetectionTime == 0) {
+                            lastDetectionTime = System.currentTimeMillis();
                         }
                     }
                 })
-                .addOnFailureListener(e -> {})
+                .addOnFailureListener(e -> {
+                    // 识别失败，也开始计时
+                    if (lastDetectionTime == 0) {
+                        lastDetectionTime = System.currentTimeMillis();
+                    }
+                })
                 .addOnCompleteListener(task -> {
-                    // 检查是否需要启动自动拍照
-                    // 只有在不是正在查看结果对话框时 才检查
-                    if (isScanning && !autoCaptureStarted && !isViewingResult) {
-                        checkAndStartAutoCapture();
+                    // 检查是否需要启动自动拍照（需要开关打开）
+                    // 如果距离开始检测已经超过3秒，且没有识别出来
+                    if (autoCaptureEnabled && isScanning && !autoCaptureStarted && !isViewingResult
+                            && lastDetectionTime > 0
+                            && (System.currentTimeMillis() - lastDetectionTime) >= AUTO_CAPTURE_DELAY) {
+                        Log.d(TAG, "3秒未识别，触发自动拍照");
+                        lastDetectionTime = 0; // 重置，防止重复触发
+                        startAutoCapture();
                     }
                     imageProxy.close();
                 });
     }
 
     /**
-     * 检查是否需要启动自动拍照
+     * 启动自动拍照（不显示倒计时，直接拍照）
      */
-    private void checkAndStartAutoCapture() {
-        long currentTime = System.currentTimeMillis();
-        if (lastScanTime == 0) {
-            // 首次进入扫描，开始计时
-            lastScanTime = currentTime;
-        } else if (currentTime - lastScanTime >= NO_SCAN_TIMEOUT_MS) {
-            // 2秒内没有识别到二维码，启动自动拍照
-            startAutoCaptureCountdown();
-        }
-    }
-
-    /**
-     * 启动自动拍照倒计时（3秒）
-     */
-    private void startAutoCaptureCountdown() {
+    private void startAutoCapture() {
         if (autoCaptureStarted) {
             return;
         }
@@ -331,34 +348,16 @@ public class ScannerActivity extends AppCompatActivity {
 
         runOnUiThread(() -> {
             countdownText.setVisibility(View.VISIBLE);
-            countdownText.setText("3秒后自动拍照");
+            countdownText.setText("正在拍照...");
             captureButton.setEnabled(false);
             captureButton.setText("自动拍照中...");
             resetButton();
         });
 
-        final int[] countdown = {3};
-        autoCaptureRunnable = new Runnable() {
-            @Override
-            public void run() {
-                // 如果扫描已经停止，不再继续
-                if (!isScanning) {
-                    cancelAutoCapture();
-                    return;
-                }
-
-                if (countdown[0] > 0) {
-                    runOnUiThread(() -> countdownText.setText(countdown[0] + "秒后自动拍照"));
-                    countdown[0]--;
-                    autoCaptureHandler.postDelayed(this, 1000);
-                } else {
-                    // 倒计时结束，执行自动拍照
-                    runOnUiThread(() -> countdownText.setText("正在拍照..."));
-                    takePictureForAutoCapture();
-                }
-            }
-        };
-        autoCaptureHandler.post(autoCaptureRunnable);
+        // 延迟 500 毫秒后拍照，让用户准备好
+        autoCaptureHandler.postDelayed(() -> {
+            takePictureForAutoCapture();
+        }, 500);
     }
 
     /**
@@ -516,7 +515,6 @@ public class ScannerActivity extends AppCompatActivity {
      * 重置自动拍照状态
      */
     private void resetAutoCaptureState() {
-        lastScanTime = 0;
         autoCaptureStarted = false;
     }
 
@@ -642,6 +640,7 @@ public class ScannerActivity extends AppCompatActivity {
     private void retryCapture() {
         resultContainer.setVisibility(View.GONE);
         isViewingResult = false;
+        lastDetectionTime = 0; // 重置检测时间
         if (currentBitmap != null) {
             currentBitmap.recycle();
             currentBitmap = null;
@@ -650,7 +649,6 @@ public class ScannerActivity extends AppCompatActivity {
         captureButton.setEnabled(true);
         // 重置自动拍照状态
         resetAutoCaptureState();
-        lastScanTime = System.currentTimeMillis();
         bindCameraPreview();
     }
     
@@ -763,6 +761,10 @@ public class ScannerActivity extends AppCompatActivity {
                 .setMessage(message)
                 .setPositiveButton("确定", (dialog, which) -> {
                     isViewingResult = false;
+                    // 如果自动拍照开关打开，则触发自动拍照
+                    if (autoCaptureEnabled) {
+                        startAutoCaptureOnResultConfirmed();
+                    }
                     // 不重置 autoCaptureStarted，只有点击"重拍"后才允许再次自动拍照
                     new Handler(Looper.getMainLooper()).postDelayed(() -> isScanning = true, 1500);
                 })
@@ -773,6 +775,10 @@ public class ScannerActivity extends AppCompatActivity {
                     android.content.ClipData clip = android.content.ClipData.newPlainText("QR", message);
                     clipboard.setPrimaryClip(clip);
                     Toast.makeText(this, "已复制", Toast.LENGTH_SHORT).show();
+                    // 如果自动拍照开关打开，则触发自动拍照
+                    if (autoCaptureEnabled) {
+                        startAutoCaptureOnResultConfirmed();
+                    }
                     // 不重置 autoCaptureStarted，只有点击"重拍"后才允许再次自动拍照
                     new Handler(Looper.getMainLooper()).postDelayed(() -> isScanning = true, 1500);
                 })
@@ -780,17 +786,27 @@ public class ScannerActivity extends AppCompatActivity {
                 .show();
     }
 
+    /**
+     * 在确认结果后触发自动拍照（用于点击确定/复制后继续扫描）
+     * 只有在自动拍照开关打开时才会触发
+     */
+    private void startAutoCaptureOnResultConfirmed() {
+        // 只有开关打开时才触发自动拍照
+        if (!autoCaptureEnabled) {
+            return;
+        }
+        // 先重置自动拍照状态，允许再次自动拍照
+        resetAutoCaptureState();
+        // 设置检测时间，触发自动拍照流程
+        lastDetectionTime = System.currentTimeMillis();
+        // 重新绑定相机预览
+        bindCameraPreview();
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
         isScanning = true;
-        // 如果 resultContainer 可见，说明用户正在查看自动拍照的结果
-        // 此时不重置 lastScanTime，保持 autoCaptureStarted = true 的状态，禁止再次自动拍照
-        // 只有用户点击"重拍"后才会重置这些状态
-        if (resultContainer.getVisibility() != View.VISIBLE) {
-            // 只有在不是查看自动拍照结果的情况下，才重置计时
-            // 这里的逻辑由 retryCapture 和 takePicture 来控制是否重置
-        }
     }
 
     @Override
