@@ -15,6 +15,14 @@
         android:background="#000000"
         app:scaleType="fitCenter" />
 
+    <!-- 对焦指示器 -->
+    <View
+        android:id="@+id/focusIndicator"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
+        android:background="@drawable/focus_indicator"
+        android:visibility="gone" />
+
     <!-- 扫描框 - 居中显示 -->
     <FrameLayout
         android:id="@+id/scanFrame"
@@ -36,6 +44,8 @@
         android:textSize="28sp"
         android:textStyle="bold"
         android:visibility="gone"
+        tools:text="3秒后自动拍照"
+        tools:visibility="visible" />"
         tools:text="3秒后自动拍照"
         tools:visibility="visible" />
 

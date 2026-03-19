@@ -20,6 +20,7 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
@@ -59,6 +60,12 @@ import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+import androidx.camera.core.FocusMeteringAction;
+import androidx.camera.core.MeteringPoint;
+import androidx.camera.core.MeteringPointFactory;
+import androidx.camera.core.SurfaceOrientedMeteringPointFactory;
 
 public class ScannerActivity extends AppCompatActivity {
 
@@ -68,6 +75,8 @@ public class ScannerActivity extends AppCompatActivity {
 
     private PreviewView previewView;
     private View scanFrame;
+    private View focusIndicator;
+    private FrameLayout rootLayout;
     private Button galleryButton;
     private Button captureButton;
     private Button flashButton;
@@ -113,11 +122,16 @@ public class ScannerActivity extends AppCompatActivity {
 
         cameraExecutor = Executors.newSingleThreadExecutor();
         autoCaptureHandler = new Handler(Looper.getMainLooper());
+
+        // 设置点击对焦监听器（在根布局上设置，确保能捕获点击事件）
+        setupFocusListener();
     }
 
     private void initViews() {
+        rootLayout = findViewById(android.R.id.content);
         previewView = findViewById(R.id.previewView);
         scanFrame = findViewById(R.id.scanFrame);
+        focusIndicator = findViewById(R.id.focusIndicator);
         galleryButton = findViewById(R.id.galleryButton);
         captureButton = findViewById(R.id.captureButton);
         flashButton = findViewById(R.id.flashButton);
@@ -272,9 +286,115 @@ public class ScannerActivity extends AppCompatActivity {
                     imageCapture,
                     imageAnalysis
             );
+            // 绑定成功后默认在扫描框中央对焦
+            focusOnCenter();
         } catch (Exception e) {
             Log.e(TAG, "相机绑定失败", e);
         }
+    }
+
+    /**
+     * 设置点击对焦监听器
+     */
+    private void setupFocusListener() {
+        if (rootLayout == null) {
+            return;
+        }
+        rootLayout.setOnTouchListener((v, event) -> {
+            if (event.getAction() == android.view.MotionEvent.ACTION_DOWN) {
+                // 检查是否点击在按钮或开关等控件上，如果是则不处理对焦
+                int x = (int) event.getRawX();
+                int y = (int) event.getRawY();
+                Log.d(TAG, "点击事件触发: rawX=" + x + ", rawY=" + y);
+
+                // 获取点击位置相对于previewView的坐标
+                int[] previewLocation = new int[2];
+                previewView.getLocationOnScreen(previewLocation);
+                float previewX = event.getRawX() - previewLocation[0];
+                float previewY = event.getRawY() - previewLocation[1];
+
+                Log.d(TAG, "预览区域坐标: previewX=" + previewX + ", previewY=" + previewY);
+
+                // 点击屏幕对焦
+                focusOnPoint(previewX, previewY);
+                return true;
+            }
+            return false;
+        });
+    }
+
+    /**
+     * 在指定位置对焦
+     */
+    private void focusOnPoint(float x, float y) {
+        if (camera == null) {
+            return;
+        }
+
+        // 创建对焦点的MeteringPoint
+        MeteringPointFactory meteringPointFactory = new SurfaceOrientedMeteringPointFactory(
+                previewView.getWidth(), previewView.getHeight());
+        MeteringPoint point = meteringPointFactory.createPoint(x, y);
+
+        // 创建对焦和测光动作（同时开启对焦和自动曝光）
+        FocusMeteringAction action = new FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF | FocusMeteringAction.FLAG_AE)
+                .setAutoCancelDuration(3, TimeUnit.SECONDS)
+                .build();
+
+        // 开始对焦
+        camera.getCameraControl().startFocusAndMetering(action);
+        Log.d(TAG, "对焦位置: (" + x + ", " + y + "), previewView尺寸: " + previewView.getWidth() + "x" + previewView.getHeight());
+
+        // 显示对焦提示
+        showFocusIndicator(x, y);
+    }
+
+    /**
+     * 在屏幕中央对焦（扫描框位置）
+     */
+    private void focusOnCenter() {
+        if (camera == null) {
+            return;
+        }
+        float centerX = previewView.getWidth() / 2f;
+        float centerY = previewView.getHeight() / 2f;
+        focusOnPoint(centerX, centerY);
+    }
+
+    /**
+     * 显示对焦指示器动画
+     */
+    private void showFocusIndicator(float x, float y) {
+        if (focusIndicator == null) {
+            return;
+        }
+
+        // 获取对焦指示器的大小
+        int indicatorSize = 80;
+        int halfSize = indicatorSize / 2;
+
+        // 设置位置（让中心对准点击位置）
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) focusIndicator.getLayoutParams();
+        params.leftMargin = (int) (x - halfSize);
+        params.topMargin = (int) (y - halfSize);
+        focusIndicator.setLayoutParams(params);
+
+        // 显示指示器
+        focusIndicator.setVisibility(View.VISIBLE);
+        focusIndicator.setAlpha(1f);
+        focusIndicator.setScaleX(1f);
+        focusIndicator.setScaleY(1f);
+
+        // 创建缩放动画（先放大再缩小）
+        focusIndicator.animate()
+                .scaleX(1.5f)
+                .scaleY(1.5f)
+                .alpha(0f)
+                .setDuration(600)
+                .withEndAction(() -> {
+                    focusIndicator.setVisibility(View.GONE);
+                })
+                .start();
     }
 
     private void analyzeImage(ImageProxy imageProxy) {
