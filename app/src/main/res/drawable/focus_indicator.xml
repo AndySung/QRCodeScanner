@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
+    android:shape="rectangle">
+    <!-- 使用圆角等于宽度的一半来实现圆形效果 -->
+    <corners android:radius="40dp" />
     <stroke
         android:width="2dp"
         android:color="#FFFFFF" />
