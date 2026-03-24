@@ -45,9 +45,7 @@
         android:textStyle="bold"
         android:visibility="gone"
         tools:text="3秒后自动拍照"
-        tools:visibility="visible" />"
-        tools:text="3秒后自动拍照"
-        tools:visibility="visible" />
+        tools:visibility="visible"/>
 
     <!-- 顶部悬浮栏 - 透明黑色背景 -->
     <LinearLayout
@@ -81,15 +79,25 @@
         <Spinner
             android:id="@+id/zoomSpinner"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_height="48dp"
             android:layout_marginEnd="8dp"
             android:background="#666666"
             android:popupBackground="#666666" />
 
         <Switch
+            android:id="@+id/manualExposureSwitch"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:text="手动曝光"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:thumbTint="#00FF00"
+            android:checked="false" />
+
+        <Switch
             android:id="@+id/saveSwitch"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_height="48dp"
             android:text="保存相册"
             android:textColor="#FFFFFF"
             android:textSize="12sp"
@@ -98,7 +106,7 @@
         <Switch
             android:id="@+id/autoCaptureSwitch"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_height="48dp"
             android:text="自动拍照"
             android:textColor="#FFFFFF"
             android:textSize="12sp"

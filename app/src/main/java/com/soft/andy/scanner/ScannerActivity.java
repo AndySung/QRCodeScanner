@@ -1,5 +1,6 @@
 package com.soft.andy.scanner;
 
+import android.annotation.SuppressLint;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -29,10 +30,12 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.OptIn;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.camera.core.Camera;
 import androidx.camera.core.CameraSelector;
+import androidx.camera.core.ExperimentalGetImage;
 import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.ImageCapture;
 import androidx.camera.core.ImageCaptureException;
@@ -86,7 +89,9 @@ public class ScannerActivity extends AppCompatActivity {
     private Button recognizeButton;
     private Switch saveSwitch;
     private Switch autoCaptureSwitch;
+    private Switch manualExposureSwitch;
     private boolean autoCaptureEnabled = true; // 自动拍照开关，默认打开
+    private boolean manualExposureEnabled = false; // 手动曝光开关，默认关闭
     
     private ExecutorService cameraExecutor;
     private BarcodeScanner barcodeScanner;
@@ -141,6 +146,7 @@ public class ScannerActivity extends AppCompatActivity {
         recognizeButton = findViewById(R.id.recognizeButton);
         saveSwitch = findViewById(R.id.saveSwitch);
         autoCaptureSwitch = findViewById(R.id.autoCaptureSwitch);
+        manualExposureSwitch = findViewById(R.id.manualExposureSwitch);
         countdownText = findViewById(R.id.countdownText);
         zoomSpinner = findViewById(R.id.zoomSpinner);
 
@@ -197,6 +203,11 @@ public class ScannerActivity extends AppCompatActivity {
         autoCaptureSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             autoCaptureEnabled = isChecked;
             Toast.makeText(this, isChecked ? "已开启自动拍照" : "已关闭自动拍照", Toast.LENGTH_SHORT).show();
+        });
+
+        manualExposureSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            manualExposureEnabled = isChecked;
+            Toast.makeText(this, isChecked ? "已开启手动曝光" : "已关闭手动曝光", Toast.LENGTH_SHORT).show();
         });
     }
 
@@ -286,8 +297,7 @@ public class ScannerActivity extends AppCompatActivity {
                     imageCapture,
                     imageAnalysis
             );
-            // 绑定成功后默认在扫描框中央对焦
-            focusOnCenter();
+            // 定焦设备不自动对焦/曝光
         } catch (Exception e) {
             Log.e(TAG, "相机绑定失败", e);
         }
@@ -296,13 +306,19 @@ public class ScannerActivity extends AppCompatActivity {
     /**
      * 设置点击对焦监听器
      */
+    @SuppressLint("ClickableViewAccessibility")
     private void setupFocusListener() {
         if (rootLayout == null) {
             return;
         }
         rootLayout.setOnTouchListener((v, event) -> {
             if (event.getAction() == android.view.MotionEvent.ACTION_DOWN) {
-                // 检查是否点击在按钮或开关等控件上，如果是则不处理对焦
+                // 只有在手动曝光开关打开时才触发曝光调整
+                if (!manualExposureEnabled) {
+                    return false;
+                }
+
+                // 检查是否点击在按钮或开关等控件上，如果是则不处理曝光
                 int x = (int) event.getRawX();
                 int y = (int) event.getRawY();
                 Log.d(TAG, "点击事件触发: rawX=" + x + ", rawY=" + y);
@@ -315,7 +331,7 @@ public class ScannerActivity extends AppCompatActivity {
 
                 Log.d(TAG, "预览区域坐标: previewX=" + previewX + ", previewY=" + previewY);
 
-                // 点击屏幕对焦
+                // 点击屏幕调整曝光
                 focusOnPoint(previewX, previewY);
                 return true;
             }
@@ -324,28 +340,28 @@ public class ScannerActivity extends AppCompatActivity {
     }
 
     /**
-     * 在指定位置对焦
+     * 在指定位置调整曝光（定焦设备不支持对焦，只支持曝光调整）
      */
     private void focusOnPoint(float x, float y) {
         if (camera == null) {
             return;
         }
 
-        // 创建对焦点的MeteringPoint
+        // 创建测光点的MeteringPoint
         MeteringPointFactory meteringPointFactory = new SurfaceOrientedMeteringPointFactory(
                 previewView.getWidth(), previewView.getHeight());
         MeteringPoint point = meteringPointFactory.createPoint(x, y);
 
-        // 创建对焦和测光动作（同时开启对焦和自动曝光）
-        FocusMeteringAction action = new FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF | FocusMeteringAction.FLAG_AE)
+        // 只开启自动曝光（FLAG_AE），不开启对焦（FLAG_AF），因为是定焦设备
+        FocusMeteringAction action = new FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AE)
                 .setAutoCancelDuration(3, TimeUnit.SECONDS)
                 .build();
 
-        // 开始对焦
+        // 开始曝光调整
         camera.getCameraControl().startFocusAndMetering(action);
-        Log.d(TAG, "对焦位置: (" + x + ", " + y + "), previewView尺寸: " + previewView.getWidth() + "x" + previewView.getHeight());
+        Log.d(TAG, "曝光调整位置: (" + x + ", " + y + "), previewView尺寸: " + previewView.getWidth() + "x" + previewView.getHeight());
 
-        // 显示对焦提示
+        // 显示曝光调整提示
         showFocusIndicator(x, y);
     }
 
@@ -397,6 +413,7 @@ public class ScannerActivity extends AppCompatActivity {
                 .start();
     }
 
+    @OptIn(markerClass = ExperimentalGetImage.class)
     private void analyzeImage(ImageProxy imageProxy) {
         if (!isScanning || imageProxy == null || imageProxy.getImage() == null) {
             imageProxy.close();
